@@ -216,3 +216,18 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# --- project-specific ---
+# raw input images (large camera JPEGs, not committed)
+images/
+# generated pipeline outputs
+output*/
+debug/
+# training photos and generated masks (large; keep labels/ and models/)
+train/images/
+train/annotated/
+train/output_masks/
+# trained model binaries (large; commit only when stable)
+train/models/*.joblib
+# backup files
+*.bak

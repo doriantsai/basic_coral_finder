@@ -1,0 +1,259 @@
+{
+  "image": "train/images/DSC00154.JPG",
+  "image_width": 7008,
+  "image_height": 4672,
+  "rois": [
+    {
+      "label": "other",
+      "x": 6300,
+      "y": 350,
+      "width": 350,
+      "height": 350
+    },
+    {
+      "label": "other",
+      "x": 6300,
+      "y": 1000,
+      "width": 350,
+      "height": 350
+    },
+    {
+      "label": "other",
+      "x": 2800,
+      "y": 1680,
+      "width": 500,
+      "height": 120
+    },
+    {
+      "label": "other",
+      "x": 50,
+      "y": 50,
+      "width": 350,
+      "height": 350
+    },
+    {
+      "label": "white",
+      "x": 2906,
+      "y": 2379,
+      "width": 522,
+      "height": 174
+    },
+    {
+      "label": "white",
+      "x": 2890,
+      "y": 1901,
+      "width": 451,
+      "height": 218
+    },
+    {
+      "label": "white",
+      "x": 3803,
+      "y": 1896,
+      "width": 472,
+      "height": 71
+    },
+    {
+      "label": "white",
+      "x": 3819,
+      "y": 1326,
+      "width": 456,
+      "height": 222
+    },
+    {
+      "label": "white",
+      "x": 3819,
+      "y": 918,
+      "width": 538,
+      "height": 201
+    },
+    {
+      "label": "white",
+      "x": 4759,
+      "y": 1907,
+      "width": 494,
+      "height": 174
+    },
+    {
+      "label": "other",
+      "x": 3547,
+      "y": 2939,
+      "width": 109,
+      "height": 478
+    },
+    {
+      "label": "other",
+      "x": 1195,
+      "y": 2282,
+      "width": 370,
+      "height": 315
+    },
+    {
+      "label": "other",
+      "x": 315,
+      "y": 1820,
+      "width": 473,
+      "height": 1027
+    },
+    {
+      "label": "other",
+      "x": 255,
+      "y": 804,
+      "width": 696,
+      "height": 549
+    },
+    {
+      "label": "other",
+      "x": 2928,
+      "y": 168,
+      "width": 1489,
+      "height": 294
+    },
+    {
+      "label": "other",
+      "x": 6443,
+      "y": 2553,
+      "width": 331,
+      "height": 1060
+    },
+    {
+      "label": "other",
+      "x": 6074,
+      "y": 3987,
+      "width": 711,
+      "height": 571
+    },
+    {
+      "label": "other",
+      "x": 2657,
+      "y": 2005,
+      "width": 130,
+      "height": 429
+    },
+    {
+      "label": "other",
+      "x": 2651,
+      "y": 2966,
+      "width": 114,
+      "height": 451
+    },
+    {
+      "label": "other",
+      "x": 2635,
+      "y": 3955,
+      "width": 103,
+      "height": 402
+    },
+    {
+      "label": "other",
+      "x": 4438,
+      "y": 2966,
+      "width": 93,
+      "height": 484
+    },
+    {
+      "label": "other",
+      "x": 4449,
+      "y": 2010,
+      "width": 98,
+      "height": 565
+    },
+    {
+      "label": "other",
+      "x": 4466,
+      "y": 1010,
+      "width": 119,
+      "height": 680
+    },
+    {
+      "label": "other",
+      "x": 3564,
+      "y": 1010,
+      "width": 125,
+      "height": 555
+    },
+    {
+      "label": "other",
+      "x": 2651,
+      "y": 1000,
+      "width": 141,
+      "height": 521
+    },
+    {
+      "label": "coral",
+      "x": 2048,
+      "y": 1059,
+      "width": 321,
+      "height": 272
+    },
+    {
+      "label": "coral",
+      "x": 3059,
+      "y": 3145,
+      "width": 201,
+      "height": 229
+    },
+    {
+      "label": "coral",
+      "x": 4878,
+      "y": 4156,
+      "width": 207,
+      "height": 206
+    },
+    {
+      "label": "coral",
+      "x": 3960,
+      "y": 4140,
+      "width": 223,
+      "height": 146
+    },
+    {
+      "label": "coral",
+      "x": 2113,
+      "y": 4080,
+      "width": 196,
+      "height": 288
+    },
+    {
+      "label": "coral",
+      "x": 4857,
+      "y": 3222,
+      "width": 146,
+      "height": 130
+    },
+    {
+      "label": "other",
+      "x": 4911,
+      "y": 3031,
+      "width": 158,
+      "height": 66
+    },
+    {
+      "label": "other",
+      "x": 3917,
+      "y": 2092,
+      "width": 70,
+      "height": 130
+    },
+    {
+      "label": "other",
+      "x": 3107,
+      "y": 3015,
+      "width": 174,
+      "height": 65
+    },
+    {
+      "label": "other",
+      "x": 3960,
+      "y": 3998,
+      "width": 185,
+      "height": 66
+    },
+    {
+      "label": "other",
+      "x": 4835,
+      "y": 4384,
+      "width": 206,
+      "height": 65
+    }
+  ]
+}

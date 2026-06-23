@@ -97,7 +97,7 @@ before any processing. All detection runs on this small version; coordinates
 are scaled back to full resolution at the end. This gives ~45× speedup with
 negligible accuracy loss for centimetre-scale objects.
 
-![Step 1 — Downscaled image](readme/images/01_downscaled.jpg)
+![Step 1 — Downscaled image](images/01_downscaled.jpg)
 
 ---
 
@@ -114,7 +114,7 @@ HSV space; L, a, b in CIE L\*a\*b\* space — all normalised to \[0, 1\]. The fo
 If no trained model is found, the pipeline falls back to an HSV brightness
 threshold (Value ≥ 185, Saturation ≤ 65).
 
-![Step 2 — White mask](readme/images/02_white_mask.jpg)
+![Step 2 — White mask](images/02_white_mask.jpg)
 
 ---
 
@@ -123,7 +123,7 @@ threshold (Value ≥ 185, Saturation ≤ 65).
 A **5 × 5 median blur** removes salt-and-pepper noise introduced by the random
 forest classifier without smearing the structural edges of the white frames.
 
-![Step 3a — Denoised mask](readme/images/03a_denoised.jpg)
+![Step 3a — Denoised mask](images/03a_denoised.jpg)
 
 ---
 
@@ -133,7 +133,7 @@ A **15 × 15 square closing** (dilation then erosion) seals remaining small
 breaks in the white frame edges caused by lighting variation or reflections,
 making each square frame a fully enclosed white region.
 
-![Step 3b — After 15×15 close](readme/images/03b_morph_close.jpg)
+![Step 3b — After 15×15 close](images/03b_morph_close.jpg)
 
 ---
 
@@ -149,7 +149,7 @@ inside each white frame. Background darkness and open-sided regions are
 automatically excluded. Many of these inner blobs are still noise — removed
 in Steps 4 and 5.
 
-![Step 3c — All inner contours](readme/images/03c_all_inner_contours.jpg)
+![Step 3c — All inner contours](images/03c_all_inner_contours.jpg)
 
 ---
 
@@ -164,7 +164,7 @@ Each inner contour's bounding box is tested against two criteria:
 
 **Green = passes. Red = fails.**
 
-![Step 4 — Size and aspect filter](readme/images/04_size_shape_filter.jpg)
+![Step 4 — Size and aspect filter](images/04_size_shape_filter.jpg)
 
 ---
 
@@ -181,7 +181,7 @@ artefacts that pass the size filter but sit against a non-white background.
 > pass this check — they are enclosed by white on all sides. They are removed
 > in Step 8.
 
-![Step 5 — White border check](readme/images/05_white_border_check.jpg)
+![Step 5 — White border check](images/05_white_border_check.jpg)
 
 ---
 
@@ -196,7 +196,7 @@ frame top edges are cropped — **Strategy 2 (directional close fallback)** trie
 tall-narrow kernels (e.g. 20 × 4 px, then 4 × 20 px) in increasing sizes
 (20, 30, 40, 50 px) and selects the one that produces the most columns.
 
-![Step 6 — Strategy used](readme/images/06_strategy.jpg)
+![Step 6 — Strategy used](images/06_strategy.jpg)
 
 ---
 
@@ -209,7 +209,7 @@ position** of each cluster becomes a row or column centre.
 Orange lines = row centres. Blue lines = column centres (before calibration
 pruning).
 
-![Step 7 — Clustering](readme/images/07_clustering.jpg)
+![Step 7 — Clustering](images/07_clustering.jpg)
 
 ---
 
@@ -228,11 +228,11 @@ gaps have ratios ≤ 0.92; coral gaps ≥ 0.99 — a clean separation.
 
 **Before pruning** — 6 columns detected:
 
-![Step 8a — Before pruning](readme/images/08a_before_pruning.jpg)
+![Step 8a — Before pruning](images/08a_before_pruning.jpg)
 
 **After pruning** — 2 red calibration columns removed, 4 green coral columns kept:
 
-![Step 8b — After pruning](readme/images/08b_after_pruning.jpg)
+![Step 8b — After pruning](images/08b_after_pruning.jpg)
 
 ---
 
@@ -241,7 +241,7 @@ gaps have ratios ≤ 0.92; coral gaps ≥ 0.99 — a clean separation.
 Each surviving blob is assigned to its nearest row and column centre, giving a
 zero-based `(row, col)` index. Each grid cell is shown in a distinct colour.
 
-![Step 9 — Grid assignment](readme/images/09_grid_assignment.jpg)
+![Step 9 — Grid assignment](images/09_grid_assignment.jpg)
 
 ---
 
@@ -259,7 +259,7 @@ border_y = median_blob_height × 0.15
 All coordinates are scaled back to full-resolution pixels. The result is a
 tight ROI around each individual white square holder.
 
-![Step 10 — Expanded ROIs](readme/images/10_expanded_rois.jpg)
+![Step 10 — Expanded ROIs](images/10_expanded_rois.jpg)
 
 ---
 
@@ -272,7 +272,7 @@ nine-feature representation (B G R H S V L a\* b\*) is used as in Step 2.
 The raw output typically contains salt-and-pepper noise and slightly ragged
 edges — addressed in Step 12.
 
-![Step 11 — Coral RF mask (raw)](readme/images/11_coral_raw_mask.jpg)
+![Step 11 — Coral RF mask (raw)](images/11_coral_raw_mask.jpg)
 
 ---
 
@@ -289,7 +289,7 @@ Three operations round and clean the raw coral mask:
 Elliptical structuring elements are used (rather than square) to produce a
 smoother, more organic contour.
 
-![Step 12 — Coral mask after cleanup](readme/images/12_coral_clean_mask.jpg)
+![Step 12 — Coral mask after cleanup](images/12_coral_clean_mask.jpg)
 
 ---
 
@@ -303,7 +303,7 @@ the annotated output image and written to `_contours.csv`.
 If no `CoralClassifier` model is found (i.e. before training), the pipeline
 falls back to an **Otsu threshold** applied to the full-resolution ROI crop.
 
-![Step 13 — Coral contours](readme/images/13_coral_contours.jpg)
+![Step 13 — Coral contours](images/13_coral_contours.jpg)
 
 ---
 
@@ -312,7 +312,7 @@ falls back to an **Otsu threshold** applied to the full-resolution ROI crop.
 Green boxes mark the white square ROI boundaries; orange outlines trace the
 coral specimens. Each ROI is labelled with its `R{row}C{col}` grid position.
 
-![Final annotated output](readme/images/final_annotated.jpg)
+![Final annotated output](images/final_annotated.jpg)
 
 ---
 

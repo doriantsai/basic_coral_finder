@@ -1,0 +1,29 @@
+Model:          20260623_CoralClassifier
+Format:         joblib (scikit-learn RandomForestClassifier)
+n_estimators:   200
+max_depth:      20
+class_weight:   balanced
+Features (9):   B, G, R, H, S, V, L, a, b
+Training pixels: 1,557,840
+Held-out pixels:   389,461
+
+Validation report:
+              precision    recall  f1-score   support
+
+ white/other     0.9951    0.9816    0.9883    325461
+       coral     0.9125    0.9753    0.9429     64000
+
+    accuracy                         0.9806    389461
+   macro avg     0.9538    0.9785    0.9656    389461
+weighted avg     0.9815    0.9806    0.9808    389461
+
+Feature importances:
+  B: 0.2118
+  a: 0.1394
+  G: 0.1217
+  b: 0.1204
+  L: 0.1137
+  V: 0.1135
+  H: 0.0753
+  R: 0.0649
+  S: 0.0393

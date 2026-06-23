@@ -1,0 +1,29 @@
+Model:          20260623_WhiteTabClassifier
+Format:         joblib (scikit-learn RandomForestClassifier)
+n_estimators:   200
+max_depth:      20
+class_weight:   balanced
+Features (9):   B, G, R, H, S, V, L, a, b
+Training pixels: 1,557,840
+Held-out pixels:   389,461
+
+Validation report:
+              precision    recall  f1-score   support
+
+ other/coral     0.9879    0.9705    0.9791    267861
+       white     0.9375    0.9738    0.9553    121600
+
+    accuracy                         0.9716    389461
+   macro avg     0.9627    0.9722    0.9672    389461
+weighted avg     0.9722    0.9716    0.9717    389461
+
+Feature importances:
+  R: 0.3472
+  L: 0.1875
+  G: 0.1544
+  B: 0.0827
+  S: 0.0754
+  V: 0.0666
+  b: 0.0521
+  a: 0.0203
+  H: 0.0137
