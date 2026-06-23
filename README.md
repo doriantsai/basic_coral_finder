@@ -1,8 +1,11 @@
 # Coral Detection on White Square Holders
 
-Automatically detects white square coral holders in aquarium rack images,
-assigns each holder a grid position label (`R{row}C{col}`), and segments the
-coral specimen within each holder using two trained random-forest classifiers.
+This repository provides an automated image analysis pipeline for detecting and segmenting coral specimens held in white plastic square holders within aquarium rack photographs. Images captured at high resolution (7008 × 4672 px) are processed using two trained random-forest classifiers — one to identify the white holder frames, and one to segment the coral tissue within each frame — combined with morphological image operations to clean and sharpen the detected regions. The pipeline locates each holder in the image, assigns it a grid position label (R{row}C{col}), and extracts the precise polygon contour of the coral specimen inside it. These contours are exported as CSV files and loaded directly into ImageJ as named ROIs, where they can be overlaid on the original high-resolution images. The goal is to non-destructively measure coral shape and area across time points, enabling growth metrics such as surface area change and morphological development to be tracked without disturbing the specimens.
+
+Note: a large neural network or transformer would provide higher quality detections, but would require GPU and more training. This tool is designed to be a relatively simple/low-tech/configurable approach that doesn't require a high-performing computer to rework.
+
+Made by Dorian Tsai to support AIMS & SeaSim scientific experiments.
+
 
 ---
 
