@@ -44,7 +44,7 @@ You can also drop images manually into `train/images/` and create label files by
 python3 bbox_labeler.py
 ```
 
-![bbox_labeler GUI](../readme/images/train_bbox_labeler.jpg)
+![bbox_labeler GUI](readme/images/train_bbox_labeler.jpg)
 
 ### Controls
 
@@ -82,7 +82,7 @@ Re-run `label_annotate.py` at any time to produce annotated preview images in `t
 python3 label_annotate.py
 ```
 
-![Annotated label preview](../readme/images/train_annotated_labels.jpg)
+![Annotated label preview](readme/images/train_annotated_labels.jpg)
 
 Green = **white**, red = **other**, orange = **coral**.  The summary bar at the top shows the count per class. If any box looks misaligned or covers the wrong region, edit the JSON directly or re-open `bbox_labeler.py` to adjust it.
 
@@ -153,7 +153,7 @@ Model saved ->  train/models/20260623_CoralClassifier.joblib
 python3 test_classifier.py
 ```
 
-![Classifier mask comparison](../readme/images/train_classifier_compare.jpg)
+![Classifier mask comparison](readme/images/train_classifier_compare.jpg)
 
 *Left: original image. Centre: binary mask (white=255, black=0). Right: original with white pixels highlighted green.*
 
