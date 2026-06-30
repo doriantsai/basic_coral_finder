@@ -76,7 +76,7 @@ FONT          = cv2.FONT_HERSHEY_SIMPLEX
 CALIB_X_LO_FRAC    = 0.040   # inner search bound (fraction of small-image width)
 CALIB_X_HI_FRAC    = 0.106   # outer search bound (fraction of small-image width)
 CALIB_Y_MIN_FRAC   = 0.08    # skip top fraction of image height (frame bolts)
-CALIB_Y_MAX_FRAC   = 0.58    # skip bottom fraction of image height
+CALIB_Y_MAX_FRAC   = 0.82    # skip bottom fraction of image height
 CALIB_R_MIN_FRAC   = 0.020   # min calibration-circle radius / small-image width
 CALIB_R_MAX_FRAC   = 0.055   # max calibration-circle radius / small-image width
 CALIB_CIRCLE_COLOR = (255, 50, 200)  # BGR magenta — calibration circles
@@ -490,59 +490,183 @@ def _best_n_circles(candidates, n):
     return best_group
 
 
+def _extrapolate_column(anchors, n, strip_h, strip_w, blurred, raw_blr, mean_r):
+    """
+    Complete a partial column of n evenly-spaced same-size circles from k < n anchors.
+
+    Tries all C(n, k) slot assignments for the k anchors, selects the assignment
+    whose implied spacing is most consistent and whose predicted positions fit best
+    within the strip.  For each unfilled slot whose predicted y is within the strip,
+    runs a tight-radius local HoughCircles search in a small window; if that fails,
+    inserts the predicted centre with the consensus radius as a best-guess fallback.
+    """
+    import itertools as _it
+
+    if len(anchors) < 2:
+        return list(anchors)
+
+    anchors_s = sorted(anchors, key=lambda c: c[1])
+    k        = len(anchors_s)
+    ys       = [c[1] for c in anchors_s]
+    xs       = [c[0] for c in anchors_s]
+    rs       = [c[2] for c in anchors_s]
+    mean_x   = float(np.mean(xs))
+    use_r    = float(np.mean(rs)) if rs else mean_r
+
+    # Radius window for local searches
+    t_lo = max(2, int(use_r * 0.78))
+    t_hi = max(t_lo + 2, int(use_r * 1.28))
+
+    # --- Try every possible slot assignment for the k anchors within n slots ---
+    best_score = -1.0
+    best_y0    = None
+    best_sp    = None
+    best_slots = None
+
+    for slot_combo in _it.combinations(range(n), k):
+        # Infer spacing from each consecutive anchor pair in the slot assignment
+        sp_list = []
+        for i in range(k - 1):
+            ds = slot_combo[i + 1] - slot_combo[i]
+            dy = ys[i + 1] - ys[i]
+            sp_list.append(dy / ds)
+
+        sp  = float(np.mean(sp_list)) if sp_list else use_r * 2.8
+        sp  = max(sp, use_r * 1.5)    # minimum physical separation
+        sp_cv = (float(np.std(sp_list)) / (sp + 1e-6)
+                 if len(sp_list) > 1 else 0.0)
+
+        y0   = ys[0] - slot_combo[0] * sp
+        ypred = [y0 + i * sp for i in range(n)]
+
+        # Count predicted positions inside the strip
+        in_strip = sum(1 for yp in ypred if 0 <= yp <= strip_h)
+        # Penalise positions that overshoot the strip edges
+        overshoot = (max(0.0, -y0) + max(0.0, ypred[-1] - strip_h)) / (sp + 1e-6)
+
+        score = in_strip / n - sp_cv * 0.5 - overshoot * 0.15
+        if score > best_score:
+            best_score = score
+            best_y0    = y0
+            best_sp    = sp
+            best_slots = slot_combo
+
+    if best_y0 is None:
+        return list(anchors_s)
+
+    y_pred = [best_y0 + i * best_sp for i in range(n)]
+
+    # Assign anchors to their designated slots
+    result = [None] * n
+    for i, slot in enumerate(best_slots):
+        result[slot] = anchors_s[i]
+
+    # Fill empty slots with local Hough search → predicted-position fallback
+    for slot in range(n):
+        if result[slot] is not None:
+            continue
+        yp = float(y_pred[slot])
+        xp = mean_x
+
+        # Skip slot if predicted centre is outside the strip
+        if yp < -best_sp * 0.4 or yp > strip_h + best_sp * 0.4:
+            continue
+
+        half_y = max(int(best_sp * 0.38), int(use_r * 0.9))
+        y_lo = max(0, int(yp - half_y))
+        y_hi = min(strip_h, int(yp + half_y))
+
+        found = None
+        if y_hi - y_lo >= 6:
+            # Use full strip width so crop_r_hi is not limited by a narrow x-window
+            crop_r_hi = min(t_hi, (y_hi - y_lo) // 2)
+            crop_r_hi = max(crop_r_hi, t_lo + 1)
+            for src in (blurred, raw_blr):
+                crop = src[y_lo:y_hi, :]
+                for p1, p2 in [(40, 20), (30, 15), (20, 10)]:
+                    rc = cv2.HoughCircles(crop, cv2.HOUGH_GRADIENT, dp=1.0,
+                        minDist=max(t_lo, 2), param1=p1, param2=p2,
+                        minRadius=t_lo, maxRadius=crop_r_hi)
+                    if rc is not None:
+                        # Pick candidate closest to predicted centre
+                        bc = min(rc[0],
+                                 key=lambda c: (c[0] - xp)**2 + (c[1] + y_lo - yp)**2)
+                        found = (int(round(bc[0])),
+                                 int(round(bc[1])) + y_lo,
+                                 int(round(bc[2])))
+                        break
+                if found:
+                    break
+
+        # Fallback: predicted centre with consensus radius
+        if found is None:
+            found = (int(round(xp)), int(round(max(0, min(strip_h, yp)))), int(round(use_r)))
+
+        result[slot] = found
+
+    return [c for c in result if c is not None]
+
+
 def _detect_circles_in_strip(strip_gray, r_min, r_max, n_expected=4):
     """
-    Return n_expected (cx, cy, r) tuples in strip-local pixel coordinates sorted
-    top-to-bottom.
+    Detect n_expected circles forming a vertical column within strip_gray.
 
-    Preprocessing: CLAHE on both the original grey strip and a disc-anomaly image
-    (tophat + blackhat) to enhance both bright and dark calibration discs.
-    Runs HoughCircles with progressive threshold relaxation; collects candidates
-    across all threshold levels, deduplicates, then selects the best n_expected
-    by spacing + radius + x-alignment scoring.
-    Falls back to Canny-edge circularity filtering when Hough yields nothing.
+    Exploits two physical constraints of the calibration target:
+      - All circles have the same radius (within ~±20%).
+      - Circles are evenly spaced in a vertical column (same x position).
+
+    Pipeline:
+      1. Initial Hough sweep on disc-anomaly (tophat+blackhat) and CLAHE-raw
+         images with progressively relaxed param2 (30→22→16→12).
+      2. Best-n selector: score all C(k,n) subsets by spacing evenness, radius
+         consistency, and column alignment (x-spread).  No radius pre-filter —
+         pre-filtering by a biased median can eject valid small-radius circles.
+      3. Post-selection same-size check: drop any circle >40% off the set mean
+         (applied after best-n, when the set mean is reliable).
+      4. Tight-radius re-scan: using the consensus radius from step 3, sweep
+         Hough again at the known disc size to recover missed same-size discs.
+      5. Extrapolation (_extrapolate_column): if < n circles remain, fit the
+         column geometry (spacing, x) from anchors and search locally at each
+         missing slot; insert predicted centre if local search fails.
     """
     strip_h, strip_w = strip_gray.shape[:2]
     if strip_h < r_min * 2 or strip_w < r_min:
         return []
 
-    # Disc-anomaly image: top-hat finds bright discs, black-hat finds dark discs.
-    # Use kernel half the expected disc size so features LARGER than noise but
-    # SMALLER than the background panel are enhanced.
-    r_est   = (r_min + r_max) // 2
-    ksize   = max(3, (r_est // 2) | 1)    # odd, ≈ half expected radius
-    kernel  = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (ksize, ksize))
-    tophat  = cv2.morphologyEx(strip_gray, cv2.MORPH_TOPHAT,   kernel)
+    # Pre-process both sources (same as before)
+    r_est    = (r_min + r_max) // 2
+    ksize    = max(3, (r_est // 2) | 1)
+    kernel   = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (ksize, ksize))
+    tophat   = cv2.morphologyEx(strip_gray, cv2.MORPH_TOPHAT,   kernel)
     blackhat = cv2.morphologyEx(strip_gray, cv2.MORPH_BLACKHAT, kernel)
     disc_sig = cv2.add(tophat, blackhat)
-
-    clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(4, 4))
-    enhanced = clahe.apply(disc_sig)
-    blurred  = cv2.GaussianBlur(enhanced, (9, 9), 2)
-
-    # Also prepare CLAHE on the raw strip for fallback
+    clahe    = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(4, 4))
+    blurred  = cv2.GaussianBlur(clahe.apply(disc_sig), (9, 9), 2)
     clahe2   = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
-    raw_eq   = clahe2.apply(strip_gray)
-    raw_blr  = cv2.GaussianBlur(raw_eq, (9, 9), 2)
+    raw_blr  = cv2.GaussianBlur(clahe2.apply(strip_gray), (9, 9), 2)
 
-    candidates = []
-    for source in (blurred, raw_blr):
-        for param1, param2 in [(50, 30), (40, 22), (30, 16), (20, 12)]:
-            raw_c = cv2.HoughCircles(
-                source, cv2.HOUGH_GRADIENT,
-                dp=1.0, minDist=r_min,
-                param1=param1, param2=param2,
-                minRadius=r_min, maxRadius=r_max,
-            )
-            if raw_c is not None:
-                for c in raw_c[0]:
-                    candidates.append((int(round(c[0])), int(round(c[1])), int(round(c[2]))))
-        candidates = _deduplicate_circles(candidates, max(2, r_min // 3))
-        if len(candidates) >= n_expected:
-            break   # enough from disc-signal source; skip raw-strip source
+    dedup_dist = max(2, r_min // 3)
 
-    if not candidates:
-        # Canny-edge contour circularity fallback
+    def _hough_sweep(r_lo, r_hi):
+        out = []
+        for src in (blurred, raw_blr):
+            for p1, p2 in [(50, 30), (40, 22), (30, 16), (20, 12)]:
+                rc = cv2.HoughCircles(src, cv2.HOUGH_GRADIENT, dp=1.0,
+                    minDist=max(r_lo, 4), param1=p1, param2=p2,
+                    minRadius=max(r_lo, 1), maxRadius=r_hi)
+                if rc is not None:
+                    for c in rc[0]:
+                        out.append((int(round(c[0])), int(round(c[1])), int(round(c[2]))))
+            out = _deduplicate_circles(out, dedup_dist)
+            if len(out) >= n_expected:
+                break
+        return out
+
+    # Phase 1: Wide-radius Hough sweep
+    cands = _hough_sweep(r_min, r_max)
+
+    # Canny-edge circularity fallback when Hough finds nothing
+    if not cands:
         edges = cv2.Canny(raw_blr, 20, 60)
         kf    = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
         edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kf)
@@ -556,17 +680,52 @@ def _detect_circles_in_strip(strip_gray, r_min, r_max, n_expected=4):
             (cx, cy), r = cv2.minEnclosingCircle(cnt)
             r = int(round(r))
             if r_min <= r <= r_max and circ > 0.55:
-                candidates.append((int(round(cx)), int(round(cy)), r))
-        candidates = _deduplicate_circles(candidates, max(2, r_min // 3))
+                cands.append((int(round(cx)), int(round(cy)), r))
+        cands = _deduplicate_circles(cands, dedup_dist)
 
-    if not candidates:
+    if not cands:
         return []
 
-    candidates.sort(key=lambda t: t[1])
-    if len(candidates) <= n_expected:
-        return candidates
+    # Phase 2: Select best n by column-geometry scoring (no radius pre-filter)
+    cands.sort(key=lambda t: t[1])
+    if len(cands) >= n_expected:
+        anchors = _best_n_circles(cands, n_expected)
+    else:
+        anchors = list(cands)
 
-    return _best_n_circles(candidates, n_expected)
+    # Phase 3: Post-selection same-size validation.
+    # Now that best-n has chosen the column, the set mean is reliable.
+    # Drop any circle >40% off the mean (clearly wrong detection).
+    if len(anchors) >= 2:
+        mean_r = float(np.mean([c[2] for c in anchors]))
+        good   = [c for c in anchors if abs(c[2] - mean_r) / (mean_r + 1e-6) <= 0.40]
+        if len(good) >= 2:
+            anchors = good
+
+    # Phase 4: Tight-radius re-scan bootstrapped from the validated anchors.
+    # The consensus radius is now reliable; sweep again to recover missed discs.
+    cons_r = float(np.mean([c[2] for c in anchors])) if anchors else float(r_est)
+    t_lo   = max(r_min, int(cons_r * 0.78))
+    t_hi   = min(r_max, int(cons_r * 1.28))
+    if t_hi > t_lo:
+        extra  = _hough_sweep(t_lo, t_hi)
+        extra  = [c for c in extra if abs(c[2] - cons_r) / (cons_r + 1e-6) <= 0.30]
+        merged = _deduplicate_circles(anchors + extra, dedup_dist)
+        if len(merged) > len(anchors):
+            merged.sort(key=lambda t: t[1])
+            if len(merged) >= n_expected:
+                anchors = _best_n_circles(merged, n_expected)
+            else:
+                anchors = merged
+
+    # Phase 5: Extrapolate missing positions using column geometry
+    if len(anchors) < n_expected:
+        cons_r = float(np.mean([c[2] for c in anchors])) if anchors else float(r_est)
+        anchors = _extrapolate_column(
+            anchors, n_expected, strip_h, strip_w, blurred, raw_blr, cons_r
+        )
+
+    return anchors
 
 
 def detect_calibration_circles(small_bgr, scale):
