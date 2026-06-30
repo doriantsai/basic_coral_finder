@@ -7,6 +7,7 @@ One numbered image per step, saved to:
     debug/<image_stem>/02_white_mask.jpg
     ...
     debug/<image_stem>/13_coral_contours.jpg
+    debug/<image_stem>/14_calibration_circles.jpg
 
 Usage:
     python3 debug_pipeline.py <image_or_dir> [debug_dir]
@@ -22,9 +23,12 @@ from detect_corals_on_white_squares import (
     MIN_BLOB_FRAC, MAX_BLOB_FRAC, MAX_BLOB_ASPECT,
     DENOISE_KSIZE, CLOSE_KSIZE, ROI_BORDER_FRAC,
     CORAL_DENOISE_KSIZE, CORAL_CLOSE_KSIZE, CORAL_OPEN_KSIZE,
+    CALIB_X_LO_FRAC, CALIB_X_HI_FRAC, CALIB_Y_MIN_FRAC, CALIB_Y_MAX_FRAC,
+    CALIB_R_MIN_FRAC, CALIB_R_MAX_FRAC, CALIB_CIRCLE_COLOR,
     get_white_mask, get_coral_mask_for_roi,
     cluster_1d, _white_in_strip, _prune_edge_centers,
     blobs_to_grid_rois, distinct_cols, find_coral_contour,
+    detect_calibration_circles,
 )
 
 FONT = cv2.FONT_HERSHEY_SIMPLEX
@@ -425,6 +429,29 @@ def debug_image(img_path, dbg_root):
         _write(dbg / "13_coral_contours.jpg", dbg13,
                f"Step 13 | Coral contours  -  {n_found}/{len(rois)} found  "
                f"[{method}]")
+
+        # ── Step 14: Calibration circles ─────────────────────────────────────
+        cal_circles = detect_calibration_circles(small, scale)
+        dbg14 = small.copy()
+        x_lo_s = max(0,  int(sw * CALIB_X_LO_FRAC))
+        x_hi_s = min(sw, int(sw * CALIB_X_HI_FRAC))
+        # shade the two search zones
+        overlay14 = dbg14.copy()
+        cv2.rectangle(overlay14, (x_lo_s, 0), (x_hi_s, sh), (60, 30, 80), -1)
+        cv2.rectangle(overlay14, (sw - x_hi_s, 0), (sw - x_lo_s, sh), (60, 30, 80), -1)
+        cv2.addWeighted(overlay14, 0.35, dbg14, 0.65, 0, dbg14)
+        for c in cal_circles:
+            cx_s = int(c["center_x"] * scale)
+            cy_s = int(c["center_y"] * scale)
+            r_s  = max(1, int(c["radius"] * scale))
+            cv2.circle(dbg14, (cx_s, cy_s), r_s, CALIB_CIRCLE_COLOR, 2)
+            label = f"{c['side']}{c['idx']}"
+            cv2.putText(dbg14, label, (cx_s - r_s + 2, cy_s - r_s - 3),
+                        FONT, 0.32, CALIB_CIRCLE_COLOR, 1, cv2.LINE_AA)
+        _write(dbg / "14_calibration_circles.jpg", dbg14,
+               f"Step 14 | Calibration circles  -  {len(cal_circles)}/8 detected  "
+               f"[zone={CALIB_X_LO_FRAC*100:.1f}%-{CALIB_X_HI_FRAC*100:.1f}% from each edge, "
+               f"r={CALIB_R_MIN_FRAC*100:.1f}%-{CALIB_R_MAX_FRAC*100:.1f}% of img width]")
 
     n_sq = len(rois) if blobs else 0
     print(f"  {stem}: {n_sq} squares  ->  {dbg}/")

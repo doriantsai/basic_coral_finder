@@ -72,10 +72,12 @@ python3 test_classifier.py
 
 | File | Contents |
 |---|---|
-| `<stem>_annotated.jpg` | Original image with green ROI boxes and orange coral contours |
+| `<stem>_annotated.jpg` | Original image with green ROI boxes, orange coral contours, and magenta calibration circles |
 | `<stem>_rois.csv` | `row, col, x, y, width, height, center_x, center_y` (full-resolution pixels) |
 | `<stem>_rois.json` | Same ROI data as JSON, consumed by the ImageJ macro |
 | `<stem>_contours.csv` | Coral contour vertices: `row, col, point_idx, x, y` — one row per polygon point |
+| `<stem>_calibration_rois.csv` | `side, idx, x, y, width, height, center_x, center_y, radius` — one row per calibration circle (8 total: L0–L3, R0–R3) |
+| `<stem>_calibration_rois.json` | Same calibration data as JSON with image dimensions and full metadata |
 
 ### Using `_contours.csv` in ImageJ
 
@@ -310,10 +312,57 @@ falls back to an **Otsu threshold** applied to the full-resolution ROI crop.
 
 ---
 
+### Step 14 — Calibration Circle Detection
+
+Each image contains **8 calibration discs** — 4 stacked vertically on the left
+side panel and 4 on the right — used to calibrate scene reflectivity. Discs
+range from near-black through dark grey, medium grey, and near-white.
+
+The search zone for each panel is a narrow horizontal strip: **4.0 – 10.6%
+of image width from each edge**. The lower bound (4%) skips the corner bracket
+structures at the image periphery; the upper bound (10.6%) stops before the
+white plastic frame begins, which would otherwise produce strong false-positive
+arc gradients.
+
+Within each strip the y-range is limited to **8 – 58% of image height**,
+excluding the top frame bolts and lower off-panel clutter.
+
+Detection uses two complementary strategies applied to the cropped strip:
+
+1. **Tophat + Blackhat morphology** — a combined disc-anomaly image highlights
+   circular intensity deviations above *and* below the background level. This
+   works for both bright (near-white) and dark discs against the grey panel.
+2. **CLAHE on the raw strip** — used as a second source when the morphology
+   signal is weak.
+
+`HoughCircles` is run with progressively relaxed `param2` (30 → 22 → 16 → 12)
+on both sources until ≥ 4 candidates are accumulated. A final
+**best-4 selector** evaluates every combination of 4 from the candidate pool
+using a composite score:
+
+```
+score = 1 / (1 + sp_cv + r_cv × 1.5 + x_spread × 0.5)
+```
+
+where `sp_cv` is the coefficient of variation of vertical spacings (penalises
+uneven stacking), `r_cv` is radius consistency, and `x_spread` penalises
+horizontal scatter.
+
+Detected circles are written as **oval ROIs** (`makeOval`) to
+`_calibration_rois.csv` / `_calibration_rois.json` and drawn in magenta on the
+annotated image. The shaded zones in the debug image below show the left and
+right search strips.
+
+![Step 14 — Calibration circles](readme/images/14_calibration_circles.jpg)
+
+---
+
 ### Final Output
 
 Green boxes mark the white square ROI boundaries; orange outlines trace the
-coral specimens. Each ROI is labelled with its `R{row}C{col}` grid position.
+coral specimens; **magenta circles** mark the 8 calibration discs. Each ROI is
+labelled with its `R{row}C{col}` grid position and each calibration circle with
+its `{side}{idx}` label (L0–L3, R0–R3).
 
 ![Final annotated output](readme/images/final_annotated.jpg)
 

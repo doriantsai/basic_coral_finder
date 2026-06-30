@@ -151,6 +151,36 @@ if (mode == "Current image") {
             print("No contours file found: " + cont_path);
         }
 
+        // ── Calibration circle ovals (_calibration_rois.csv) ─────────────────
+        // Columns: side, idx, x, y, width, height, center_x, center_y, radius, ...
+        // x,y is the top-left of the bounding square; width==height==2*radius.
+        cal_path = output_dir + stem + "_calibration_rois.csv";
+        if (File.exists(cal_path)) {
+            cal_lines = split(File.openAsString(cal_path), "\n");
+            n_cal = 0;
+            for (i = 1; i < cal_lines.length; i++) {
+                line = trim(cal_lines[i]);
+                if (line == "") continue;
+                f = split(line, ",");
+                if (f.length < 9) continue;
+                side  = f[0];
+                idx   = f[1];
+                ox    = parseInt(f[2]);
+                oy    = parseInt(f[3]);
+                ow    = parseInt(f[4]);
+                oh    = parseInt(f[5]);
+                makeOval(ox, oy, ow, oh);
+                roiManager("add");
+                n = roiManager("count");
+                roiManager("select", n - 1);
+                roiManager("rename", "cal_" + side + idx);
+                n_cal++;
+            }
+            print("Loaded " + n_cal + " calibration circle ROI(s).");
+        } else {
+            print("No calibration ROI file found: " + cal_path);
+        }
+
         roiManager("show all");
 
         // Open the annotated image alongside the original

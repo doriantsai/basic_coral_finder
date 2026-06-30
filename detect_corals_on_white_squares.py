@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
 detect_corals_on_white_squares.py
-Detect white square coral holders and the coral specimen within each holder.
+Detect white square coral holders, the coral specimen within each holder,
+and the 8 calibration circles (4 per side panel) used for reflectivity
+calibration.
 
 Pipeline:
   Steps 1-10   Locate and grid-assign white square ROIs using the
@@ -9,12 +11,18 @@ Pipeline:
   Steps 11-13  Within each ROI, segment the coral using the CoralClassifier
                random forest, apply morphological cleanup, and return the
                coral contour.
+  Step 14      Detect the 4 calibration circles on the left side panel and
+               the 4 on the right side panel using HoughCircles on a
+               CLAHE-enhanced greyscale strip.
 
 Outputs per image:
-  <name>_annotated.jpg   original with ROI boxes (green) and coral outlines (orange)
-  <name>_rois.csv        row,col,x,y,width,height in full-resolution pixels
-  <name>_rois.json       same as JSON for ImageJ / downstream tools
-  <name>_contours.csv    coral contour vertices: row,col,point_idx,x,y
+  <name>_annotated.jpg            original with ROI boxes (green), coral outlines
+                                  (orange), and calibration circles (magenta)
+  <name>_rois.csv                 row,col,x,y,width,height in full-resolution pixels
+  <name>_rois.json                same as JSON for ImageJ / downstream tools
+  <name>_contours.csv             coral contour vertices: row,col,point_idx,x,y
+  <name>_calibration_rois.csv     side,idx,x,y,width,height,center_x,center_y,radius
+  <name>_calibration_rois.json    same as JSON for ImageJ / downstream tools
 
 Usage:
   python3 detect_corals_on_white_squares.py <image_or_dir> [output_dir]
@@ -59,6 +67,19 @@ BOX_COLOR     = (0, 200, 50)    # BGR green  — ROI bounding boxes
 CONTOUR_COLOR = (0, 165, 255)   # BGR orange — coral outline
 TEXT_COLOR    = (0, 220, 255)   # BGR yellow — labels
 FONT          = cv2.FONT_HERSHEY_SIMPLEX
+
+# Step 14 calibration circle detection
+# Search zone per side: image x in [CALIB_X_LO, CALIB_X_HI] (left)
+#                                 and [1-CALIB_X_HI, 1-CALIB_X_LO] (right)
+# LO skips corner-bracket structures near the image edge.
+# HI stops before the white plastic frame begins (avoids false-positive arcs).
+CALIB_X_LO_FRAC    = 0.040   # inner search bound (fraction of small-image width)
+CALIB_X_HI_FRAC    = 0.106   # outer search bound (fraction of small-image width)
+CALIB_Y_MIN_FRAC   = 0.08    # skip top fraction of image height (frame bolts)
+CALIB_Y_MAX_FRAC   = 0.58    # skip bottom fraction of image height
+CALIB_R_MIN_FRAC   = 0.020   # min calibration-circle radius / small-image width
+CALIB_R_MAX_FRAC   = 0.055   # max calibration-circle radius / small-image width
+CALIB_CIRCLE_COLOR = (255, 50, 200)  # BGR magenta — calibration circles
 
 
 # ── Model loading ─────────────────────────────────────────────────────────────
@@ -421,6 +442,197 @@ def blobs_to_grid_rois(blobs, sh, sw, scale):
     return result
 
 
+# ── Step 14: calibration circle detection ────────────────────────────────────
+
+def _deduplicate_circles(circles, min_dist):
+    """Remove near-duplicate circle centres within min_dist of each other."""
+    unique = []
+    for c in circles:
+        if not any((c[0]-u[0])**2 + (c[1]-u[1])**2 < min_dist**2 for u in unique):
+            unique.append(c)
+    return unique
+
+
+def _best_n_circles(candidates, n):
+    """
+    Pick the n circles from candidates that best form a vertical calibration
+    column, scored by vertical spacing evenness + radius consistency +
+    horizontal x-alignment.  Uses brute-force combination search (fast for
+    small candidate sets).
+    """
+    import itertools
+    if len(candidates) <= n:
+        return sorted(candidates, key=lambda t: t[1])
+
+    mean_r_all = float(np.mean([c[2] for c in candidates])) + 1e-6
+    best_score = -1.0
+    best_group = sorted(candidates, key=lambda t: t[1])[:n]
+
+    for grp in itertools.combinations(candidates, n):
+        grp = sorted(grp, key=lambda t: t[1])
+        ys  = [c[1] for c in grp]
+        rs  = [c[2] for c in grp]
+        xs  = [c[0] for c in grp]
+
+        spacings = [ys[i+1] - ys[i] for i in range(n - 1)]
+        if min(spacings) < max(rs) * 0.4:   # circles must not nearly overlap
+            continue
+
+        sp_cv    = float(np.std(spacings)) / (float(np.mean(spacings)) + 1e-6)
+        r_cv     = float(np.std(rs)) / (float(np.mean(rs)) + 1e-6)
+        x_spread = float(np.std(xs)) / mean_r_all
+
+        score = 1.0 / (1.0 + sp_cv + r_cv * 1.5 + x_spread * 0.5)
+        if score > best_score:
+            best_score = score
+            best_group = list(grp)
+
+    return best_group
+
+
+def _detect_circles_in_strip(strip_gray, r_min, r_max, n_expected=4):
+    """
+    Return n_expected (cx, cy, r) tuples in strip-local pixel coordinates sorted
+    top-to-bottom.
+
+    Preprocessing: CLAHE on both the original grey strip and a disc-anomaly image
+    (tophat + blackhat) to enhance both bright and dark calibration discs.
+    Runs HoughCircles with progressive threshold relaxation; collects candidates
+    across all threshold levels, deduplicates, then selects the best n_expected
+    by spacing + radius + x-alignment scoring.
+    Falls back to Canny-edge circularity filtering when Hough yields nothing.
+    """
+    strip_h, strip_w = strip_gray.shape[:2]
+    if strip_h < r_min * 2 or strip_w < r_min:
+        return []
+
+    # Disc-anomaly image: top-hat finds bright discs, black-hat finds dark discs.
+    # Use kernel half the expected disc size so features LARGER than noise but
+    # SMALLER than the background panel are enhanced.
+    r_est   = (r_min + r_max) // 2
+    ksize   = max(3, (r_est // 2) | 1)    # odd, ≈ half expected radius
+    kernel  = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (ksize, ksize))
+    tophat  = cv2.morphologyEx(strip_gray, cv2.MORPH_TOPHAT,   kernel)
+    blackhat = cv2.morphologyEx(strip_gray, cv2.MORPH_BLACKHAT, kernel)
+    disc_sig = cv2.add(tophat, blackhat)
+
+    clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(4, 4))
+    enhanced = clahe.apply(disc_sig)
+    blurred  = cv2.GaussianBlur(enhanced, (9, 9), 2)
+
+    # Also prepare CLAHE on the raw strip for fallback
+    clahe2   = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    raw_eq   = clahe2.apply(strip_gray)
+    raw_blr  = cv2.GaussianBlur(raw_eq, (9, 9), 2)
+
+    candidates = []
+    for source in (blurred, raw_blr):
+        for param1, param2 in [(50, 30), (40, 22), (30, 16), (20, 12)]:
+            raw_c = cv2.HoughCircles(
+                source, cv2.HOUGH_GRADIENT,
+                dp=1.0, minDist=r_min,
+                param1=param1, param2=param2,
+                minRadius=r_min, maxRadius=r_max,
+            )
+            if raw_c is not None:
+                for c in raw_c[0]:
+                    candidates.append((int(round(c[0])), int(round(c[1])), int(round(c[2]))))
+        candidates = _deduplicate_circles(candidates, max(2, r_min // 3))
+        if len(candidates) >= n_expected:
+            break   # enough from disc-signal source; skip raw-strip source
+
+    if not candidates:
+        # Canny-edge contour circularity fallback
+        edges = cv2.Canny(raw_blr, 20, 60)
+        kf    = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kf)
+        cnts, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        for cnt in cnts:
+            area = cv2.contourArea(cnt)
+            peri = cv2.arcLength(cnt, True)
+            if peri < 1:
+                continue
+            circ = 4.0 * np.pi * area / (peri * peri)
+            (cx, cy), r = cv2.minEnclosingCircle(cnt)
+            r = int(round(r))
+            if r_min <= r <= r_max and circ > 0.55:
+                candidates.append((int(round(cx)), int(round(cy)), r))
+        candidates = _deduplicate_circles(candidates, max(2, r_min // 3))
+
+    if not candidates:
+        return []
+
+    candidates.sort(key=lambda t: t[1])
+    if len(candidates) <= n_expected:
+        return candidates
+
+    return _best_n_circles(candidates, n_expected)
+
+
+def detect_calibration_circles(small_bgr, scale):
+    """
+    Detect the 4 calibration discs on the left side panel and 4 on the right.
+
+    Each side is searched within a narrow horizontal zone that covers only the
+    grey calibration panel:
+      - x: [CALIB_X_LO_FRAC × W,  CALIB_X_HI_FRAC × W]         (left panel)
+           [(1−CALIB_X_HI_FRAC) × W,  (1−CALIB_X_LO_FRAC) × W]  (right panel)
+      LO skips corner-bracket structures near the image edge.
+      HI stops before the white plastic frame begins (avoids false-positive arcs
+      from the frame's rounded corners being mistaken for calibration discs).
+      - y: [CALIB_Y_MIN_FRAC × H, CALIB_Y_MAX_FRAC × H]
+      The y-crop excludes frame bolts at the top and off-panel clutter below.
+
+    Detection uses tophat+blackhat morphology to enhance disc-shaped intensity
+    deviations (works for both dark and near-white discs against the grey panel),
+    followed by progressive HoughCircles and a best-4 selector that scores by
+    vertical spacing evenness, radius consistency, and horizontal alignment.
+
+    Returns a list of up to 8 dicts sorted L0..L3 then R0..R3:
+        side        'L' or 'R'
+        idx         0-3 top-to-bottom within the panel
+        x, y        top-left of the bounding box in full-resolution pixels
+        width       bounding-box width  (= 2 × radius)
+        height      bounding-box height (= 2 × radius)
+        center_x    circle centre x in full-resolution pixels
+        center_y    circle centre y in full-resolution pixels
+        radius      circle radius in full-resolution pixels
+    """
+    sh, sw   = small_bgr.shape[:2]
+    x_lo     = max(0,  int(sw * CALIB_X_LO_FRAC))
+    x_hi     = min(sw, int(sw * CALIB_X_HI_FRAC))
+    y_min_s  = max(0,  int(sh * CALIB_Y_MIN_FRAC))
+    y_max_s  = min(sh, int(sh * CALIB_Y_MAX_FRAC))
+    r_min    = max(4,  int(sw * CALIB_R_MIN_FRAC))
+    r_max    = max(8,  int(sw * CALIB_R_MAX_FRAC))
+    gray     = cv2.cvtColor(small_bgr, cv2.COLOR_BGR2GRAY)
+    inv      = 1.0 / scale
+
+    results = []
+    for side, x0_img, x1_img in [
+        ('L', x_lo,      x_hi),
+        ('R', sw - x_hi, sw - x_lo),
+    ]:
+        if x1_img <= x0_img:
+            continue
+        strip = gray[y_min_s:y_max_s, x0_img:x1_img]
+        det   = _detect_circles_in_strip(strip, r_min, r_max, n_expected=4)
+        for idx, (cx_s, cy_s, r_s) in enumerate(det):
+            cx_f = int((cx_s + x0_img) * inv)
+            cy_f = int((cy_s + y_min_s) * inv)
+            r_f  = int(r_s * inv)
+            d    = r_f * 2
+            results.append({
+                "side": side, "idx": idx,
+                "x": cx_f - r_f, "y": cy_f - r_f,
+                "width": d, "height": d,
+                "center_x": cx_f, "center_y": cy_f,
+                "radius": r_f,
+            })
+
+    return results
+
+
 # ── Per-image pipeline ────────────────────────────────────────────────────────
 
 def process_image(img_path, output_dir):
@@ -444,6 +656,9 @@ def process_image(img_path, output_dir):
         pts = find_coral_contour(img, small, x, y, w, h)
         contours.append((row, col, pts))
 
+    # ── Step 14: calibration circles ──────────────────────────────────────────
+    cal_circles = detect_calibration_circles(small, scale)
+
     stem = Path(img_path).stem
 
     # ── Annotated image ───────────────────────────────────────────────────────
@@ -465,6 +680,16 @@ def process_image(img_path, output_dir):
     for (_row, _col, pts) in contours:
         if pts is not None:
             cv2.polylines(ann, [pts.reshape(-1, 1, 2)], True, CONTOUR_COLOR, thick)
+
+    for c in cal_circles:
+        cx, cy, r = c["center_x"], c["center_y"], c["radius"]
+        cv2.circle(ann, (cx, cy), r, CALIB_CIRCLE_COLOR, thick)
+        label = f"{c['side']}{c['idx']}"
+        (tw, th), _ = cv2.getTextSize(label, FONT, font_scale, thick)
+        lx, ly = cx - r, cy - r
+        cv2.rectangle(ann, (lx, ly), (lx + tw + 6, ly + th + 8), (30, 30, 30), -1)
+        cv2.putText(ann, label, (lx + 3, ly + th + 4),
+                    FONT, font_scale, CALIB_CIRCLE_COLOR, thick, cv2.LINE_AA)
 
     ann_path = Path(output_dir) / f"{stem}_annotated.jpg"
     cv2.imwrite(str(ann_path), ann, [cv2.IMWRITE_JPEG_QUALITY, 92])
@@ -499,9 +724,36 @@ def process_image(img_path, output_dir):
                 for idx, (px, py) in enumerate(pts):
                     writer.writerow([row, col, idx, int(px), int(py)])
 
+    # ── Calibration circles CSV ───────────────────────────────────────────────
+    cal_csv_path = Path(output_dir) / f"{stem}_calibration_rois.csv"
+    with open(cal_csv_path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["side", "idx", "x", "y", "width", "height",
+                         "center_x", "center_y", "radius",
+                         "image_width", "image_height"])
+        for c in cal_circles:
+            writer.writerow([c["side"], c["idx"],
+                             c["x"], c["y"], c["width"], c["height"],
+                             c["center_x"], c["center_y"], c["radius"],
+                             W, H])
+
+    # ── Calibration circles JSON ──────────────────────────────────────────────
+    cal_json_path = Path(output_dir) / f"{stem}_calibration_rois.json"
+    with open(cal_json_path, "w") as f:
+        json.dump({
+            "image": str(img_path), "image_width": W, "image_height": H,
+            "calibration_circles_detected": len(cal_circles),
+            "calibration_circles": cal_circles,
+        }, f, indent=2)
+
     n_blobs = len(blobs)
-    print(f"  {stem}: {len(rois)} squares detected ({n_blobs} inner blobs found)")
+    n_cal   = len(cal_circles)
+    print(f"  {stem}: {len(rois)} squares, {n_cal}/8 calibration circles"
+          f"  ({n_blobs} inner blobs found)")
     print(f"    -> {ann_path.name}  |  {csv_path.name}  |  {contours_path.name}")
+    print(f"    -> {cal_csv_path.name}  |  {cal_json_path.name}")
+    if n_cal < 8:
+        print(f"  [WARNING] Expected 8 calibration circles, got {n_cal}")
     return rois
 
 
