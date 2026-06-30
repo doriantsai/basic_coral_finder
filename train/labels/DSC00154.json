@@ -254,6 +254,34 @@
       "y": 4384,
       "width": 206,
       "height": 65
+    },
+    {
+      "label": "coral",
+      "x": 2119,
+      "y": 2092,
+      "width": 277,
+      "height": 277
+    },
+    {
+      "label": "coral",
+      "x": 2097,
+      "y": 3097,
+      "width": 212,
+      "height": 217
+    },
+    {
+      "label": "coral",
+      "x": 3031,
+      "y": 1076,
+      "width": 256,
+      "height": 222
+    },
+    {
+      "label": "other",
+      "x": 4889,
+      "y": 1065,
+      "width": 60,
+      "height": 54
     }
   ]
 }

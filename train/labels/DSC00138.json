@@ -364,6 +364,34 @@
       "y": 3308,
       "width": 70,
       "height": 82
+    },
+    {
+      "label": "white",
+      "x": 2803,
+      "y": 1793,
+      "width": 228,
+      "height": 125
+    },
+    {
+      "label": "white",
+      "x": 3944,
+      "y": 2521,
+      "width": 647,
+      "height": 103
+    },
+    {
+      "label": "other",
+      "x": 2092,
+      "y": 87,
+      "width": 1178,
+      "height": 174
+    },
+    {
+      "label": "other",
+      "x": 5987,
+      "y": 38,
+      "width": 684,
+      "height": 277
     }
   ]
 }

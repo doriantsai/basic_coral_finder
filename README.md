@@ -79,6 +79,77 @@ python3 test_classifier.py
 | `<stem>_calibration_rois.csv` | `side, idx, x, y, width, height, center_x, center_y, radius` — one row per calibration circle (8 total: L0–L3, R0–R3) |
 | `<stem>_calibration_rois.json` | Same calibration data as JSON with image dimensions and full metadata |
 
+---
+
+### Coordinate system
+
+All pixel coordinates use the **image coordinate system**: origin `(0, 0)` is
+the **top-left corner** of the full-resolution image, `x` increases to the
+right, and `y` increases downward.
+
+![ROI coordinate diagram](readme/images/roi_coordinate_diagram.jpg)
+
+| Field | Definition |
+|---|---|
+| `x` | Left edge of the bounding box, in full-resolution pixels from the left of the image |
+| `y` | Top edge of the bounding box, in full-resolution pixels from the top of the image |
+| `width` | Horizontal extent of the box in pixels (along the x-axis, left → right) |
+| `height` | Vertical extent of the box in pixels (along the y-axis, top → bottom) |
+| `center_x` | `x + width / 2` — horizontal centre of the box |
+| `center_y` | `y + height / 2` — vertical centre of the box |
+
+---
+
+### `_rois.csv` / `_rois.json` — white square holder ROIs
+
+One row per detected white square holder.
+
+```
+row, col, x, y, width, height, center_x, center_y
+0, 0, 1886, 953, 606, 580, 2189, 1243
+0, 1, 2833, 973, 626, 560, 3146, 1253
+...
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `row` | int | Zero-based row index in the grid (0 = topmost row) |
+| `col` | int | Zero-based column index in the grid (0 = leftmost column) |
+| `x` | int | Left edge of the white square ROI (full-resolution pixels) |
+| `y` | int | Top edge of the white square ROI (full-resolution pixels) |
+| `width` | int | Width of the ROI (horizontal, x-axis) |
+| `height` | int | Height of the ROI (vertical, y-axis) |
+| `center_x` | int | Horizontal centre of the ROI |
+| `center_y` | int | Vertical centre of the ROI |
+
+The JSON version (`_rois.json`) wraps these fields in an `"rois"` array and
+adds `"image"`, `"image_width"`, and `"image_height"` at the top level.
+
+---
+
+### `_contours.csv` — coral polygon vertices
+
+One row per polygon vertex; rows for the same holder are contiguous and share
+the same `(row, col)`.
+
+```
+row, col, point_idx, x, y
+0, 0, 0, 2110, 1050
+0, 0, 1, 2145, 1038
+...
+0, 1, 0, 3020, 1080
+...
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `row`, `col` | int | Grid position of the holder this contour belongs to |
+| `point_idx` | int | Zero-based index of this vertex within the polygon |
+| `x`, `y` | int | Full-resolution pixel coordinates of the vertex |
+
+To reconstruct the polygon for a given holder, select all rows with matching
+`(row, col)`, sort by `point_idx`, and read off the `x`, `y` columns.
+
 ### Using `_contours.csv` in ImageJ
 
 ```javascript
@@ -86,6 +157,40 @@ python3 test_classifier.py
 makeSelection("polygon", xArray, yArray);
 roiManager("add");
 ```
+
+---
+
+### `_calibration_rois.csv` / `_calibration_rois.json` — calibration disc ROIs
+
+One row per calibration disc (8 total: L0–L3 on the left panel, R0–R3 on the
+right panel, ordered top to bottom).
+
+```
+side, idx, x, y, width, height, center_x, center_y, radius
+L, 0, 213, 640, 346, 346, 386, 813, 173
+L, 1, 134, 947, 452, 452, 360, 1173, 226
+...
+R, 0, 6333, 840, 320, 320, 6493, 1000, 160
+...
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `side` | str | `L` = left panel, `R` = right panel |
+| `idx` | int | 0–3, top to bottom within the panel |
+| `x` | int | Left edge of the bounding square enclosing the disc |
+| `y` | int | Top edge of the bounding square enclosing the disc |
+| `width` | int | `2 × radius` (bounding square width, horizontal) |
+| `height` | int | `2 × radius` (bounding square height, vertical; equals `width`) |
+| `center_x` | int | Horizontal pixel coordinate of the disc centre |
+| `center_y` | int | Vertical pixel coordinate of the disc centre |
+| `radius` | int | Disc radius in full-resolution pixels |
+
+The disc label is `{side}{idx}` (e.g. `L0`, `R3`). In ImageJ the discs are
+loaded as `makeOval` ROIs using `(x, y, width, height)`.
+
+The JSON version adds `"image"`, `"image_width"`, `"image_height"`, and
+`"calibration_circles_detected"` at the top level.
 
 ---
 
@@ -373,6 +478,24 @@ its `{side}{idx}` label (L0–L3, R0–R3).
 Both classifiers share the same nine-feature pixel representation and are
 trained from bounding-box labels drawn over a sample of 10 images.
 
+### Labelling with `bbox_labeler.py`
+
+`bbox_labeler.py` is an interactive GUI for drawing training labels. Press
+`[w]` / `[c]` / `[o]` to choose the active class, then left-drag to draw a
+box; right-click to delete; `[n]` / `[p]` to navigate; `[q]` to save and quit.
+
+![bbox_labeler GUI](readme/images/train_bbox_labeler.jpg)
+
+The info bar at the top shows the image counter, filename, box counts per
+class, and the currently active class (green = WHITE, here). The hint row
+across the top lists all keybindings.
+
+Annotated label previews (written to `train/annotated/` by `label_annotate.py`)
+show the same bounding boxes in a static image — useful for a quick audit of
+coverage without opening the GUI:
+
+![Annotated label preview](readme/images/train_annotated_labels.jpg)
+
 ### Label classes
 
 | Key | Label | Color | Used by |
@@ -392,6 +515,8 @@ train/
   annotated/   label preview images (generated by label_annotate.py)
   output_masks/ mask / overlay / compare images (generated by test_classifier.py)
 ```
+
+See [`train/README.md`](train/README.md) for the full step-by-step training workflow.
 
 ### JSON label format
 
