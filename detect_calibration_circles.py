@@ -25,11 +25,8 @@ Stage 1 — Per-column anchor-pair search.
   soft constraint when searching the right column (both share the same physical
   disc heights).
 
-Stage 2 — Joint y-grid refinement.
-  All detected y-positions from both columns vote for the best uniformly-spaced
-  4-row grid (RANSAC-style pair enumeration).  Each circle's y is snapped to
-  its nearest grid row; empty slots are filled from the column median-x and the
-  grid geometry.  Radii are set to the cross-column median for consistency.
+  After selecting the best column, the two intermediate circles' radii are used
+  as a per-column reference to cap any 2× over-detected anchor radius.
 
 Usage:
     python3 detect_calibration_circles.py <image_or_dir> [output_dir]
