@@ -16,8 +16,10 @@ Made by Dorian Tsai to support AIMS & SeaSim scientific experiments.
 | File | Purpose |
 |---|---|
 | `detect_corals_on_white_squares.py` | Main pipeline — run directly or called by the ImageJ macro |
+| `detect_calibration_circles.py` | Standalone calibration-disc detector (also called from the main pipeline at Step 14) |
 | `run_detection.ijm` | ImageJ macro — calls the Python script and loads ROIs into ROI Manager |
 | `debug_pipeline.py` | Saves step-by-step intermediate images to `debug/<image_stem>/` |
+| `calibration_README.md` | Detailed step-by-step description of the calibration circle detection algorithm |
 
 ### Training
 
@@ -419,58 +421,44 @@ falls back to an **Otsu threshold** applied to the full-resolution ROI crop.
 
 ### Step 14 — Calibration Circle Detection
 
-Each image contains exactly **8 calibration discs** — 4 stacked vertically on
-the left side panel and 4 on the right — used to calibrate scene reflectivity.
-Discs range from near-black through dark grey, medium grey, and near-white.
-All 8 discs are the same physical size (~700–1000 px diameter at full
-resolution) and form 4 rows, with the left and right discs at the same image
-height per row.
+Step 14 is handled by **`detect_calibration_circles.py`** (imported into the
+main pipeline at runtime). The image is resampled to **25%** for this step
+independently of the 15% scale used for white-square detection.
 
-**Search zone** for each panel: a horizontal strip spanning **1.0 – 25.0% of
-image width from each edge**, covering the full height of the image
-(**1 – 99% of image height**). The inner bound (1%) clears the image edge
-hardware; the outer bound (25%) covers the full width of the grey calibration
-panel. False positives further inward are suppressed by the `x_spread` term in
-the best-4 scorer, which penalises candidates scattered away from the tight
-calibration column.
+Each image contains exactly **8 calibration discs** — 4 on the left side panel
+and 4 on the right — arranged in a fixed 2-column × 4-row grid. The discs span
+the full luminance range by design: one near-black, one near-white, and two
+intermediate greys per column, in monotone order top-to-bottom.
 
-Detection uses two complementary strategies applied to the cropped strip:
+**Algorithm summary (anchor-pair):**
 
-1. **Tophat + Blackhat morphology** — a combined disc-anomaly image highlights
-   circular intensity deviations above *and* below the background level. This
-   works for both bright (near-white) and dark discs against the grey panel.
-2. **CLAHE on the raw strip** — used as a second source when the morphology
-   signal is weak.
+1. Crop a narrow vertical strip from each side of the image (outer ¼ of image
+   width) and run `HoughCircles` on two preprocessed sources: a
+   tophat+blackhat disc-anomaly image and a CLAHE-enhanced raw strip.
+2. Sample mean grey at each candidate using a **fixed-radius** disc
+   (`r_min // 2`) — critical for correctly ranking the white disc, which Hough
+   sometimes detects at 2× its true radius.
+3. Test every pair from the **top-20 darkest × top-20 brightest** candidates
+   as column endpoints (400 pairs max). For each passing pair, fill intermediate
+   rows by nearest-neighbour search in a tight ±1.5 × r_min horizontal window.
+4. Score each 4-circle hypothesis:
+   ```
+   score = (gray_range / 200) × monotonicity
+           ──────────────────────────────────────────────────
+           1 + sp_cv + r_cv × 0.5 + x_cv × 2.0 + y_match × 2.0
+   ```
+   where `sp_cv` penalises uneven row spacing, `x_cv` penalises non-vertical
+   columns, and `y_match` is a soft constraint ensuring L and R rows are at the
+   same physical heights (the left column is detected first; its y-positions
+   guide the right column search).
+5. Cap any anchor-disc radius more than 30% above the inner-circle median
+   (Hough over-detection artefact).
 
-`HoughCircles` is run with progressively relaxed `param2` (30 → 22 → 16 → 12)
-on both sources until ≥ 4 candidates are accumulated. To prevent combinatorial
-explosion with the wide search zone, candidates are first focused on the
-densest x-cluster (the calibration column) and capped at 24 before scoring.
-A **best-4 selector** then evaluates every C(k, 4) combination using:
+**Result on the 6-image test set:** all 48 circles detected, ~25 px mean centre
+error at full resolution (~1.9 s/image).
 
-```
-score = 1 / (1 + sp_cv + r_cv × 1.5 + x_spread × 0.5)
-```
-
-where `sp_cv` is the coefficient of variation of vertical spacings (penalises
-uneven stacking), `r_cv` is radius consistency, and `x_spread` penalises
-horizontal scatter. Any circle not found by Hough is recovered by
-`_extrapolate_column`, which fits the column geometry from the detected anchors
-and runs a tight local Hough search at each missing slot.
-
-**Post-detection validation** (`_validate_calibration_circles`) enforces the
-two physical constraints:
-
-- **Same size**: any circle whose radius deviates more than 25% from the global
-  median has its radius and bounding box replaced with the median value.
-- **Row alignment**: for each L[i] / R[i] pair that differs by more than 12% of
-  image height, the circle with the worse radius consistency is snapped to its
-  partner's y-coordinate.
-
-Detected circles are written as **oval ROIs** (`makeOval`) to
-`_calibration_rois.csv` / `_calibration_rois.json` and drawn in magenta on the
-annotated image. The shaded zones in the debug image below show the left and
-right search strips.
+For the full step-by-step description with visualisations, see
+**[`calibration_README.md`](calibration_README.md)**.
 
 ![Step 14 — Calibration circles](readme/images/14_calibration_circles.jpg)
 
@@ -587,6 +575,7 @@ subdirectory **relative to the script**:
 macros/
 ├── run_detection.ijm
 ├── detect_corals_on_white_squares.py
+├── detect_calibration_circles.py
 └── train/
     └── models/
         ├── YYYYMMDD_WhiteTabClassifier.joblib
@@ -633,6 +622,7 @@ directory. The `macros/` folder is directly inside it.
 ```bash
 # Standalone ImageJ example — adjust path if using Fiji
 cp detect_corals_on_white_squares.py ~/ImageJ/macros/
+cp detect_calibration_circles.py     ~/ImageJ/macros/
 cp run_detection.ijm                 ~/ImageJ/macros/
 
 # Copy trained models if available
@@ -688,6 +678,7 @@ conda install -c conda-forge opencv numpy scikit-learn joblib
 ```bash
 # Fiji example
 cp detect_corals_on_white_squares.py /Applications/Fiji.app/macros/
+cp detect_calibration_circles.py     /Applications/Fiji.app/macros/
 cp run_detection.ijm                 /Applications/Fiji.app/macros/
 
 mkdir -p /Applications/Fiji.app/macros/train/models/
@@ -744,8 +735,8 @@ conda install -c conda-forge opencv numpy scikit-learn joblib
 
 **3. Copy the files**
 
-Using File Explorer: copy `run_detection.ijm` and
-`detect_corals_on_white_squares.py` into the `macros\` folder found above.
+Using File Explorer: copy `run_detection.ijm`, `detect_corals_on_white_squares.py`,
+and `detect_calibration_circles.py` into the `macros\` folder found above.
 
 If you have trained models, create `macros\train\models\` and copy the
 `.joblib` files there.
