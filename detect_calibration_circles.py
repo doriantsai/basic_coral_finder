@@ -57,8 +57,8 @@ CALIB_X_LO_FRAC  = 0.010   # inner x bound from each edge (fraction of image wid
 CALIB_X_HI_FRAC  = 0.250   # outer x bound from each edge
 CALIB_Y_MIN_FRAC = 0.01    # skip this fraction of image height at top
 CALIB_Y_MAX_FRAC = 0.99    # skip this fraction of image height at bottom
-CALIB_R_MIN_FRAC = 0.020   # min circle radius as fraction of image width
-CALIB_R_MAX_FRAC = 0.075   # max circle radius
+CALIB_R_MIN_FRAC = 0.025   # min circle radius as fraction of image width
+CALIB_R_MAX_FRAC = 0.050   # max circle radius
 
 N_ROWS  = 4     # circles per column
 N_TOTAL = 8     # 2 columns × 4 rows
