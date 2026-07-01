@@ -196,6 +196,98 @@ The JSON version adds `"image"`, `"image_width"`, `"image_height"`, and
 
 ---
 
+## Configuration parameters
+
+All tunable constants sit at the top of their respective script so they can be
+adjusted without touching any algorithm logic.  Values shown below are the
+defaults; pixel equivalents are calculated for the standard 7008 × 4672 px
+camera output.
+
+---
+
+### `detect_corals_on_white_squares.py` — white-square and coral detection
+
+#### Scaling
+
+| Parameter | Value | Units | Meaning | Typical range |
+|---|---|---|---|---|
+| `PROCESS_SCALE` | `0.15` | fraction | Image is downscaled to this fraction before all white-square detection (Steps 1–13). Coordinates are scaled back to full resolution at the end. For a 7008 × 4672 px image this gives a 1051 × 700 px working image. | 0.10 – 0.25 — lower is faster; go higher if small squares are missed |
+
+#### White pixel mask — HSV fallback (Steps 2–3, used only without a trained model)
+
+| Parameter | Value | Units | Meaning | Typical range |
+|---|---|---|---|---|
+| `HSV_V_MIN` | `185` | 0 – 255 (HSV Value) | Minimum brightness a pixel must have to be classified as white. Pixels below this threshold are excluded regardless of saturation. | 160 – 220 — lower catches dim frames but adds coloured noise |
+| `HSV_S_MAX` | `65` | 0 – 255 (HSV Saturation) | Maximum colour saturation allowed for a white pixel. Values above this are considered too coloured to be the white plastic frame. | 40 – 90 |
+
+#### Blob size and shape filter (Step 4)
+
+| Parameter | Value | Units | Meaning | Typical range |
+|---|---|---|---|---|
+| `MIN_BLOB_FRAC` | `0.002` | fraction of image area | Minimum inner-blob area as a fraction of the total image area. At 15 % scale this is ≈ 1 470 px²; at full resolution ≈ 65 000 px² (roughly a 255 × 255 px square). Smaller blobs are rejected as noise. | 0.001 – 0.005 |
+| `MAX_BLOB_FRAC` | `0.10` | fraction of image area | Maximum inner-blob area. At 15 % scale ≈ 73 570 px²; full resolution ≈ 3.3 M px². Prevents large merged regions from being treated as a single square. | 0.05 – 0.20 |
+| `MAX_BLOB_ASPECT` | `2.0` | dimensionless (long ÷ short side) | Maximum allowed aspect ratio of the bounding box. Rejects long thin artefacts (rails, shadows) while passing squares (aspect ≈ 1). | 1.5 – 3.0 |
+
+#### White mask morphology (Steps 3a–3b, at 15 % scale)
+
+| Parameter | Value | Units | Full-res equivalent | Meaning | Typical range |
+|---|---|---|---|---|---|
+| `DENOISE_KSIZE` | `5` | px (must be odd) | ≈ 33 px | Median blur kernel applied to the raw white mask. Removes salt-and-pepper noise from the random forest classifier without smearing frame edges. | 3 – 9 |
+| `CLOSE_KSIZE` | `15` | px (must be odd) | ≈ 100 px | Square morphological close kernel. Seals gaps in the white frame edges caused by reflections or lighting variation. Increase if frame borders appear broken; decrease if separate frames start merging. | 9 – 25 |
+
+#### ROI border (Step 10)
+
+| Parameter | Value | Units | Meaning | Typical range |
+|---|---|---|---|---|
+| `ROI_BORDER_FRAC` | `0.15` | fraction of blob dimension | Each detected blob (dark interior) is expanded by this fraction of its own width/height on every side to include the surrounding white plastic frame wall. 0.15 = 15 % extra on each of the four sides. | 0.05 – 0.30 |
+
+#### Coral mask morphology (Steps 11–12, at 15 % scale, elliptical kernels)
+
+| Parameter | Value | Units | Full-res equivalent | Meaning | Typical range |
+|---|---|---|---|---|---|
+| `CORAL_DENOISE_KSIZE` | `3` | px (must be odd) | ≈ 20 px | Median blur on the raw coral classifier output. Removes isolated noise pixels from the RF prediction before morphological cleanup. | 3 – 7 |
+| `CORAL_CLOSE_KSIZE` | `7` | px (must be odd) | ≈ 46 px | Elliptical morphological close applied to the coral mask. Seals small holes and smooths the coral outline inward. Increase to close larger gaps in branching corals; decrease to preserve fine detail. | 3 – 15 |
+| `CORAL_OPEN_KSIZE` | `3` | px (must be odd) | ≈ 20 px | Elliptical morphological open applied after closing. Removes small noise patches that survive closing. | 3 – 7 |
+
+---
+
+### `detect_calibration_circles.py` — calibration disc detection
+
+See also **[`calibration_README.md`](calibration_README.md)** for a full description with diagrams.
+
+#### Scaling
+
+| Parameter | Value | Units | Meaning | Typical range |
+|---|---|---|---|---|
+| `PROCESS_SCALE` | `0.25` | fraction | Image is downscaled to this fraction before Hough circle detection. For 7008 × 4672 px this gives 1752 × 1168 px. Used independently of `PROCESS_SCALE` in the main script. | 0.15 – 0.35 — lower than 0.20 makes discs too small for Hough; higher than 0.35 adds little accuracy |
+
+#### Search strip geometry (applied at `PROCESS_SCALE`)
+
+All `*_FRAC` values are fractions of the **downscaled** image dimension.
+
+| Parameter | Value | Units | Small-image value (1752 × 1168 px) | Full-res equivalent | Meaning | Typical range |
+|---|---|---|---|---|---|---|
+| `CALIB_X_LO_FRAC` | `0.010` | fraction of small-image width | 17 px from each edge | 70 px | Inner x boundary of the search strip. Clears image-edge hardware (corner brackets, frame bolts) that would otherwise generate false candidates. | 0.005 – 0.03 |
+| `CALIB_X_HI_FRAC` | `0.250` | fraction of small-image width | 438 px from each edge | 1752 px | Outer x boundary — covers the full width of the grey calibration panel. The scoring function keeps the correct tight column within this wider zone. | 0.15 – 0.35 |
+| `CALIB_Y_MIN_FRAC` | `0.010` | fraction of small-image height | 11 px from top | 46 px | Rows above this are excluded from candidate search. Removes panel corner reflections and frame bolt structures at the top of the image. | 0.0 – 0.05 |
+| `CALIB_Y_MAX_FRAC` | `0.990` | fraction of small-image height | 11 px from bottom | 46 px | Rows below this are excluded. Mirrors `CALIB_Y_MIN_FRAC` for the bottom edge. | 0.95 – 1.0 |
+
+#### Circle size (applied at `PROCESS_SCALE`)
+
+| Parameter | Value | Units | Small-image radius | Full-res radius | Full-res diameter | Meaning | Typical range |
+|---|---|---|---|---|---|---|---|
+| `CALIB_R_MIN_FRAC` | `0.025` | fraction of small-image width | 43 px | 172 px | 344 px | Minimum disc radius passed to `HoughCircles`. Discs detected smaller than this are ignored. Set below the smallest expected disc; the anchor-pair scorer picks the correct size within the range. | 0.015 – 0.035 |
+| `CALIB_R_MAX_FRAC` | `0.050` | fraction of small-image width | 87 px | 348 px | 696 px | Maximum disc radius. Discs detected larger than this are ignored. Should comfortably exceed the largest disc across all expected camera distances and zoom levels. | 0.040 – 0.080 |
+
+#### Grid geometry (fixed, match physical rig)
+
+| Parameter | Value | Meaning |
+|---|---|---|
+| `N_ROWS` | `4` | Number of calibration discs per column (must match the physical rig). |
+| `N_TOTAL` | `8` | Total discs expected (= 2 × `N_ROWS`). Used for output validation and status reporting. |
+
+---
+
 ## Algorithm — Step by Step
 
 All example images are from `DSC00150.JPG`.

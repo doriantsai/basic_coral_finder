@@ -249,13 +249,49 @@ python3 detect_calibration_circles.py path/to/image.JPG output/
 python3 detect_calibration_circles.py path/to/images/ output/
 ```
 
-Key constants in `detect_calibration_circles.py`:
+---
 
-| Constant | Default | Description |
+## Configuration parameters
+
+All tunable constants are at the top of `detect_calibration_circles.py`.
+Pixel equivalents below are for the standard 7008 × 4672 px camera output.
+
+### Scaling
+
+| Parameter | Value | Units | Meaning | Typical range |
+|---|---|---|---|---|
+| `PROCESS_SCALE` | `0.25` | fraction | Image is downscaled to this fraction before Hough circle detection. For 7008 × 4672 px this produces a 1752 × 1168 px working image. Too low (< 0.20) makes the discs too small for reliable Hough detection; too high (> 0.35) adds processing time with diminishing accuracy gains. | 0.20 – 0.35 |
+
+### Search strip geometry
+
+The detector crops a vertical strip from the left and right edges of the
+downscaled image. All `*_FRAC` values are fractions of the **downscaled**
+image dimension (width for X, height for Y).
+
+| Parameter | Value | Units | Small-image value (1752 × 1168 px) | Full-res equivalent | Meaning | If you need to change it |
+|---|---|---|---|---|---|---|
+| `CALIB_X_LO_FRAC` | `0.010` | fraction of small-image width | 17 px inset from each edge | 70 px | Inner x boundary of each search strip. The gap between the image edge and the first included column. Clears corner brackets and frame bolts at the image edge. | Increase if edge hardware generates false candidates; decrease if the outermost real disc is being missed |
+| `CALIB_X_HI_FRAC` | `0.250` | fraction of small-image width | 438 px inset from each edge | 1752 px | Outer x boundary — the strip extends from `LO` to `HI` inward from each side, covering the full grey calibration panel. The scoring function selects the correct tight column within this wider zone. | Widen if the panel extends further inward; narrow to reduce false candidates on images with clutter near centre |
+| `CALIB_Y_MIN_FRAC` | `0.010` | fraction of small-image height | 11 px from top | 46 px | Candidate circles above this row are excluded. Removes reflections and bolt structures at the top edge of the panel. | Increase if top-edge hardware reaches further down the image |
+| `CALIB_Y_MAX_FRAC` | `0.990` | fraction of small-image height | 11 px from bottom | 46 px | Candidate circles below this row are excluded. Mirrors `CALIB_Y_MIN_FRAC` for the bottom edge. | Increase the complement (1 − value) if bottom-edge artefacts cause false detections |
+
+### Circle size
+
+The Hough transform only reports circles whose radius falls within
+`[r_min, r_max]`. Both bounds are specified as a fraction of the
+**downscaled image width** and converted to integer pixels at runtime.
+
+| Parameter | Value | Units | Small-image radius | Full-res radius | Full-res diameter | Meaning | If you need to change it |
+|---|---|---|---|---|---|---|---|
+| `CALIB_R_MIN_FRAC` | `0.025` | fraction of small-image width | 43 px | 172 px | 344 px | Minimum disc radius accepted by `HoughCircles`. Any candidate smaller than this is discarded before scoring. | Decrease if the camera is zoomed out and discs appear smaller; must stay well below the true disc radius |
+| `CALIB_R_MAX_FRAC` | `0.050` | fraction of small-image width | 87 px | 348 px | 696 px | Maximum disc radius. Candidates larger than this are discarded. Should comfortably exceed the largest disc across all expected zoom levels and camera distances. The radius range visualisation (`generate_radius_range_figure.py`) shows these rings on any image. | Increase if the camera is very close and discs are large; decrease to reduce false candidates from other circular objects |
+
+### Grid geometry
+
+These match the **physical rig** and should only be changed if the rig
+itself changes.
+
+| Parameter | Value | Meaning |
 |---|---|---|
-| `PROCESS_SCALE` | `0.25` | Downscale factor for Hough processing |
-| `CALIB_X_LO_FRAC` | `0.010` | Inner bound of each search strip (fraction of image width) |
-| `CALIB_X_HI_FRAC` | `0.250` | Outer bound of each search strip |
-| `CALIB_R_MIN_FRAC` | `0.020` | Minimum disc radius (fraction of image width) |
-| `CALIB_R_MAX_FRAC` | `0.075` | Maximum disc radius |
-| `N_ROWS` | `4` | Discs per column |
+| `N_ROWS` | `4` | Number of calibration discs in each column (left and right). Changing this requires retraining the anchor-pair scorer's y-span and spacing assumptions. |
+| `N_TOTAL` | `8` | Total expected discs (= 2 × `N_ROWS`). Used for output validation and the `8/8` status line. |
