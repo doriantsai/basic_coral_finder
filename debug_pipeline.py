@@ -16,6 +16,7 @@ Usage:
 import cv2
 import numpy as np
 import sys
+import time
 from pathlib import Path
 
 from detect_corals_on_white_squares import (
@@ -484,11 +485,15 @@ def main():
         sys.exit(1)
 
     print(f"Processing {len(paths)} image(s) -> {debug_dir}/\n")
+    t_total = time.time()
     for p in paths:
         print(f"[{p.name}]")
+        t0 = time.time()
         debug_image(p, debug_dir)
+        print(f"  time: {time.time() - t0:.1f}s")
 
-    print("\nDone.")
+    elapsed = time.time() - t_total
+    print(f"\nDone.  Total: {elapsed:.1f}s  ({elapsed/len(paths):.1f}s/image)")
 
 
 if __name__ == "__main__":

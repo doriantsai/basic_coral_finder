@@ -1,0 +1,147 @@
+{
+  "image": "calibration_labels/images/DSC00150.JPG",
+  "image_width": 7008,
+  "image_height": 4672,
+  "boxes": [
+    {
+      "label": "circle",
+      "x": 1180,
+      "y": 919,
+      "width": 400,
+      "height": 400
+    },
+    {
+      "label": "circle",
+      "x": 1204,
+      "y": 1693,
+      "width": 384,
+      "height": 384
+    },
+    {
+      "label": "circle",
+      "x": 1158,
+      "y": 2397,
+      "width": 422,
+      "height": 422
+    },
+    {
+      "label": "circle",
+      "x": 1185,
+      "y": 3141,
+      "width": 390,
+      "height": 390
+    },
+    {
+      "label": "circle",
+      "x": 5708,
+      "y": 944,
+      "width": 416,
+      "height": 416
+    },
+    {
+      "label": "circle",
+      "x": 5717,
+      "y": 1692,
+      "width": 398,
+      "height": 398
+    },
+    {
+      "label": "circle",
+      "x": 5712,
+      "y": 2447,
+      "width": 364,
+      "height": 364
+    },
+    {
+      "label": "circle",
+      "x": 5685,
+      "y": 3165,
+      "width": 396,
+      "height": 396
+    },
+    {
+      "label": "other",
+      "x": 299,
+      "y": 1364,
+      "width": 320,
+      "height": 423
+    },
+    {
+      "label": "other",
+      "x": 54,
+      "y": 43,
+      "width": 549,
+      "height": 473
+    },
+    {
+      "label": "other",
+      "x": 141,
+      "y": 2456,
+      "width": 516,
+      "height": 700
+    },
+    {
+      "label": "other",
+      "x": 120,
+      "y": 1967,
+      "width": 662,
+      "height": 260
+    },
+    {
+      "label": "other",
+      "x": 234,
+      "y": 3395,
+      "width": 684,
+      "height": 516
+    },
+    {
+      "label": "other",
+      "x": 413,
+      "y": 4140,
+      "width": 587,
+      "height": 298
+    },
+    {
+      "label": "other",
+      "x": 3477,
+      "y": 3053,
+      "width": 217,
+      "height": 353
+    },
+    {
+      "label": "other",
+      "x": 5579,
+      "y": 3966,
+      "width": 533,
+      "height": 489
+    },
+    {
+      "label": "other",
+      "x": 6557,
+      "y": 4009,
+      "width": 380,
+      "height": 500
+    },
+    {
+      "label": "other",
+      "x": 6372,
+      "y": 1163,
+      "width": 511,
+      "height": 478
+    },
+    {
+      "label": "other",
+      "x": 6307,
+      "y": 674,
+      "width": 484,
+      "height": 336
+    },
+    {
+      "label": "other",
+      "x": 5373,
+      "y": 81,
+      "width": 597,
+      "height": 332
+    }
+  ]
+}

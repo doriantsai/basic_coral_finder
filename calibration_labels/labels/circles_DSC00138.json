@@ -1,0 +1,55 @@
+{
+  "image": "calibration_labels/images/DSC00138.JPG",
+  "image_width": 7008,
+  "image_height": 4672,
+  "circles": [
+    {
+      "label": "circle",
+      "center_x": 701,
+      "center_y": 717,
+      "radius": 254
+    },
+    {
+      "label": "circle",
+      "center_x": 712,
+      "center_y": 1711,
+      "radius": 266
+    },
+    {
+      "label": "circle",
+      "center_x": 723,
+      "center_y": 2684,
+      "radius": 255
+    },
+    {
+      "label": "circle",
+      "center_x": 723,
+      "center_y": 3656,
+      "radius": 243
+    },
+    {
+      "label": "circle",
+      "center_x": 6611,
+      "center_y": 755,
+      "radius": 231
+    },
+    {
+      "label": "circle",
+      "center_x": 6611,
+      "center_y": 1733,
+      "radius": 277
+    },
+    {
+      "label": "circle",
+      "center_x": 6595,
+      "center_y": 2695,
+      "radius": 277
+    },
+    {
+      "label": "circle",
+      "center_x": 6590,
+      "center_y": 3678,
+      "radius": 242
+    }
+  ]
+}

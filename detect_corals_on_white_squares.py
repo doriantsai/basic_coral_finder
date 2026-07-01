@@ -33,6 +33,7 @@ import numpy as np
 import csv
 import json
 import sys
+import time
 from pathlib import Path
 
 try:
@@ -72,14 +73,14 @@ FONT          = cv2.FONT_HERSHEY_SIMPLEX
 # Search zone per side: image x in [CALIB_X_LO, CALIB_X_HI] (left)
 #                                 and [1-CALIB_X_HI, 1-CALIB_X_LO] (right)
 # LO skips corner-bracket structures near the image edge.
-# HI stops before the white plastic frame begins (avoids false-positive arcs).
-CALIB_X_LO_FRAC    = 0.040   # inner search bound (fraction of small-image width)
-CALIB_X_HI_FRAC    = 0.106   # outer search bound (fraction of small-image width)
-CALIB_Y_MIN_FRAC   = 0.08    # skip top fraction of image height (frame bolts)
-CALIB_Y_MAX_FRAC   = 0.82    # skip bottom fraction of image height
+# HI covers the full grey panel width; x_spread scoring keeps the tight column.
+CALIB_X_LO_FRAC    = 0.010   # inner search bound (fraction of small-image width)
+CALIB_X_HI_FRAC    = 0.250   # outer search bound (fraction of small-image width)
+CALIB_Y_MIN_FRAC   = 0.01    # skip top fraction of image height (frame bolts)
+CALIB_Y_MAX_FRAC   = 0.99    # skip bottom fraction of image height
 CALIB_R_MIN_FRAC   = 0.020   # min calibration-circle radius / small-image width
-CALIB_R_MAX_FRAC   = 0.055   # max calibration-circle radius / small-image width
-CALIB_CIRCLE_COLOR = (255, 50, 200)  # BGR magenta — calibration circles
+CALIB_R_MAX_FRAC   = 0.075   # max calibration-circle radius / small-image width (~1000px dia)
+CALIB_CIRCLE_COLOR = (255, 50, 200)  # BGR magenta — calibration circles annotation colour
 
 
 # ── Model loading ─────────────────────────────────────────────────────────────
@@ -686,7 +687,19 @@ def _detect_circles_in_strip(strip_gray, r_min, r_max, n_expected=4):
     if not cands:
         return []
 
-    # Phase 2: Select best n by column-geometry scoring (no radius pre-filter)
+    # Phase 2: Select best n by column-geometry scoring (no radius pre-filter).
+    # Cap candidates first: with a wide search strip many false-positive Hough
+    # circles can arrive, making C(k,4) blow up.  The real calibration circles
+    # always form the tightest x-cluster, so keep only candidates nearest the
+    # peak of the x-histogram before scoring.
+    _MAX_CANDS = 24
+    if len(cands) > _MAX_CANDS:
+        xs     = np.array([c[0] for c in cands])
+        bin_w  = max(1, r_min)
+        hist, edges = np.histogram(xs, bins=np.arange(xs.min(), xs.max() + bin_w + 1, bin_w))
+        peak_x = 0.5 * (edges[int(np.argmax(hist))] + edges[int(np.argmax(hist)) + 1])
+        cands  = sorted(cands, key=lambda c: abs(c[0] - peak_x))[:_MAX_CANDS]
+
     cands.sort(key=lambda t: t[1])
     if len(cands) >= n_expected:
         anchors = _best_n_circles(cands, n_expected)
@@ -714,6 +727,13 @@ def _detect_circles_in_strip(strip_gray, r_min, r_max, n_expected=4):
         if len(merged) > len(anchors):
             merged.sort(key=lambda t: t[1])
             if len(merged) >= n_expected:
+                # Apply same cap before re-scoring
+                if len(merged) > _MAX_CANDS:
+                    xs     = np.array([c[0] for c in merged])
+                    hist, edges = np.histogram(xs, bins=np.arange(xs.min(), xs.max() + bin_w + 1, bin_w))
+                    peak_x = 0.5 * (edges[int(np.argmax(hist))] + edges[int(np.argmax(hist)) + 1])
+                    merged = sorted(merged, key=lambda c: abs(c[0] - peak_x))[:_MAX_CANDS]
+                    merged.sort(key=lambda t: t[1])
                 anchors = _best_n_circles(merged, n_expected)
             else:
                 anchors = merged
@@ -728,17 +748,68 @@ def _detect_circles_in_strip(strip_gray, r_min, r_max, n_expected=4):
     return anchors
 
 
+def _validate_calibration_circles(results, img_h_full):
+    """
+    Cross-column and same-size post-detection validation.
+
+    Physical constraints:
+      1. All 8 calibration circles are the same physical size: any circle whose
+         radius deviates >25% from the global median has its radius and bounding
+         box replaced with the median value.
+      2. Row alignment: L[i] and R[i] should be at the same image height.
+         If a pair differs by more than 12% of image height, the circle whose
+         radius is further from the global median is snapped to the other's y.
+
+    Modifies results in-place and returns the list.
+    """
+    if len(results) < 2:
+        return results
+
+    L = sorted([c for c in results if c['side'] == 'L'], key=lambda c: c['center_y'])
+    R = sorted([c for c in results if c['side'] == 'R'], key=lambda c: c['center_y'])
+
+    all_r = [c['radius'] for c in results]
+    med_r = int(round(float(np.median(all_r))))
+
+    # Same-size enforcement: replace outlier radii with global median
+    for c in results:
+        if abs(c['radius'] - med_r) / (med_r + 1e-6) > 0.25:
+            cx, cy   = c['center_x'], c['center_y']
+            c['radius'] = med_r
+            c['width']  = med_r * 2
+            c['height'] = med_r * 2
+            c['x']      = cx - med_r
+            c['y']      = cy - med_r
+
+    # Cross-column row alignment: L[i] and R[i] should share the same y
+    if len(L) == 4 and len(R) == 4:
+        y_tol = img_h_full * 0.12
+        for lc, rc in zip(L, R):
+            if abs(lc['center_y'] - rc['center_y']) <= y_tol:
+                continue
+            # Trust whichever circle's radius is closer to the global median
+            l_err = abs(lc['radius'] - med_r)
+            r_err = abs(rc['radius'] - med_r)
+            anchor_y = lc['center_y'] if l_err <= r_err else rc['center_y']
+            fix      = rc               if l_err <= r_err else lc
+            r = fix['radius']
+            fix['center_y'] = anchor_y
+            fix['y']        = anchor_y - r
+
+    return results
+
+
 def detect_calibration_circles(small_bgr, scale):
     """
     Detect the 4 calibration discs on the left side panel and 4 on the right.
 
-    Each side is searched within a narrow horizontal zone that covers only the
-    grey calibration panel:
+    Each side is searched within a horizontal zone covering the grey panel:
       - x: [CALIB_X_LO_FRAC × W,  CALIB_X_HI_FRAC × W]         (left panel)
            [(1−CALIB_X_HI_FRAC) × W,  (1−CALIB_X_LO_FRAC) × W]  (right panel)
-      LO skips corner-bracket structures near the image edge.
-      HI stops before the white plastic frame begins (avoids false-positive arcs
-      from the frame's rounded corners being mistaken for calibration discs).
+      LO skips corner-bracket structures near the image edge (4%).
+      HI covers the full panel width (25%); the x_spread scoring in
+      _best_n_circles keeps the tight calibration column and rejects any
+      candidates scattered further inward.
       - y: [CALIB_Y_MIN_FRAC × H, CALIB_Y_MAX_FRAC × H]
       The y-crop excludes frame bolts at the top and off-panel clutter below.
 
@@ -789,6 +860,8 @@ def detect_calibration_circles(small_bgr, scale):
                 "radius": r_f,
             })
 
+    img_h_full = int(round(sh * inv))
+    _validate_calibration_circles(results, img_h_full)
     return results
 
 
@@ -943,11 +1016,15 @@ def main():
         sys.exit(1)
 
     print(f"Processing {len(paths)} image(s) -> {output_dir}\n")
+    t_total = time.time()
     for p in paths:
         print(f"[{p.name}]")
+        t0 = time.time()
         process_image(p, output_dir)
+        print(f"  time: {time.time() - t0:.1f}s")
 
-    print("\nDone.")
+    elapsed = time.time() - t_total
+    print(f"\nDone.  Total: {elapsed:.1f}s  ({elapsed/len(paths):.1f}s/image)")
 
 
 if __name__ == "__main__":

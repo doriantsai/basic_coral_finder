@@ -419,18 +419,20 @@ falls back to an **Otsu threshold** applied to the full-resolution ROI crop.
 
 ### Step 14 — Calibration Circle Detection
 
-Each image contains **8 calibration discs** — 4 stacked vertically on the left
-side panel and 4 on the right — used to calibrate scene reflectivity. Discs
-range from near-black through dark grey, medium grey, and near-white.
+Each image contains exactly **8 calibration discs** — 4 stacked vertically on
+the left side panel and 4 on the right — used to calibrate scene reflectivity.
+Discs range from near-black through dark grey, medium grey, and near-white.
+All 8 discs are the same physical size (~700–1000 px diameter at full
+resolution) and form 4 rows, with the left and right discs at the same image
+height per row.
 
-The search zone for each panel is a narrow horizontal strip: **4.0 – 10.6%
-of image width from each edge**. The lower bound (4%) skips the corner bracket
-structures at the image periphery; the upper bound (10.6%) stops before the
-white plastic frame begins, which would otherwise produce strong false-positive
-arc gradients.
-
-Within each strip the y-range is limited to **8 – 58% of image height**,
-excluding the top frame bolts and lower off-panel clutter.
+**Search zone** for each panel: a horizontal strip spanning **1.0 – 25.0% of
+image width from each edge**, covering the full height of the image
+(**1 – 99% of image height**). The inner bound (1%) clears the image edge
+hardware; the outer bound (25%) covers the full width of the grey calibration
+panel. False positives further inward are suppressed by the `x_spread` term in
+the best-4 scorer, which penalises candidates scattered away from the tight
+calibration column.
 
 Detection uses two complementary strategies applied to the cropped strip:
 
@@ -441,9 +443,10 @@ Detection uses two complementary strategies applied to the cropped strip:
    signal is weak.
 
 `HoughCircles` is run with progressively relaxed `param2` (30 → 22 → 16 → 12)
-on both sources until ≥ 4 candidates are accumulated. A final
-**best-4 selector** evaluates every combination of 4 from the candidate pool
-using a composite score:
+on both sources until ≥ 4 candidates are accumulated. To prevent combinatorial
+explosion with the wide search zone, candidates are first focused on the
+densest x-cluster (the calibration column) and capped at 24 before scoring.
+A **best-4 selector** then evaluates every C(k, 4) combination using:
 
 ```
 score = 1 / (1 + sp_cv + r_cv × 1.5 + x_spread × 0.5)
@@ -451,7 +454,18 @@ score = 1 / (1 + sp_cv + r_cv × 1.5 + x_spread × 0.5)
 
 where `sp_cv` is the coefficient of variation of vertical spacings (penalises
 uneven stacking), `r_cv` is radius consistency, and `x_spread` penalises
-horizontal scatter.
+horizontal scatter. Any circle not found by Hough is recovered by
+`_extrapolate_column`, which fits the column geometry from the detected anchors
+and runs a tight local Hough search at each missing slot.
+
+**Post-detection validation** (`_validate_calibration_circles`) enforces the
+two physical constraints:
+
+- **Same size**: any circle whose radius deviates more than 25% from the global
+  median has its radius and bounding box replaced with the median value.
+- **Row alignment**: for each L[i] / R[i] pair that differs by more than 12% of
+  image height, the circle with the worse radius consistency is snapped to its
+  partner's y-coordinate.
 
 Detected circles are written as **oval ROIs** (`makeOval`) to
 `_calibration_rois.csv` / `_calibration_rois.json` and drawn in magenta on the
